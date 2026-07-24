@@ -10,7 +10,7 @@ import { TransactionRow } from '../components/TransactionRow';
 import { fmtMoney, todayISO, monthKey, lastMonthKey } from '../logic/utils';
 
 export default function DashboardScreen({ navigation }) {
-  const { expenses, income, settings, categories, refresh, removeExpense } = useLedger();
+  const { expenses, income, settings, categories, refresh, removeExpense, goalContributions } = useLedger();
   const theme = getTheme(settings.darkMode);
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -31,8 +31,12 @@ export default function DashboardScreen({ navigation }) {
     const byCat = {};
     monthExpenses.forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
 
-    return { monthTotal, lastMonthTotal, todayTotal, weekTotal, monthIncome, budget, pct, byCat, mk };
-  }, [expenses, income, settings.monthlyBudget]);
+    const monthGoalContributions = goalContributions
+      .filter((c) => c.month_key === mk)
+      .reduce((s, c) => s + c.amount, 0);
+
+    return { monthTotal, lastMonthTotal, todayTotal, weekTotal, monthIncome, budget, pct, byCat, mk, monthGoalContributions };
+  }, [expenses, income, settings.monthlyBudget, goalContributions]);
 
   const recent = useMemo(
     () => [...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8),
@@ -84,7 +88,9 @@ export default function DashboardScreen({ navigation }) {
             label="Spent this month"
             value={fmtMoney(stats.monthTotal, settings.currency)}
             foot={stats.budget
-              ? `${stats.pct.toFixed(0)}% of ${fmtMoney(stats.budget, settings.currency)} budget`
+              ? stats.monthTotal > stats.budget
+                ? `Exceeded by ${fmtMoney(stats.monthTotal - stats.budget, settings.currency)}`
+                : `${stats.pct.toFixed(0)}% of ${fmtMoney(stats.budget, settings.currency)} budget`
               : 'No budget set — go to Budget'}
           />
           {stats.budget ? <ProgressBar pct={stats.pct} theme={theme} /> : null}
@@ -97,7 +103,7 @@ export default function DashboardScreen({ navigation }) {
             <StatCard theme={theme} label="This week" value={fmtMoney(stats.weekTotal, settings.currency)} />
             <StatCard theme={theme} label="Last month" value={fmtMoney(stats.lastMonthTotal, settings.currency)} />
           </View>
-          <StatCard theme={theme} label="Savings this month" value={fmtMoney(stats.monthIncome - stats.monthTotal, settings.currency)} />
+          <StatCard theme={theme} label="Savings this month" value={fmtMoney(stats.monthIncome - stats.monthTotal - stats.monthGoalContributions, settings.currency)} />
         </View>
 
         <Card theme={theme}>

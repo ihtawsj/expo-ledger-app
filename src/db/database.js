@@ -55,7 +55,8 @@ async function initSchema(database) {
       name TEXT NOT NULL,
       target REAL NOT NULL,
       current REAL DEFAULT 0,
-      target_date TEXT
+      target_date TEXT,
+      priority INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS recurring (
       id TEXT PRIMARY KEY NOT NULL,
@@ -73,6 +74,17 @@ async function initSchema(database) {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       data TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS goal_contributions (
+      id TEXT PRIMARY KEY NOT NULL,
+      goal_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date TEXT NOT NULL,
+      month_key TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auto_save_log (
+      month_key TEXT PRIMARY KEY NOT NULL,
+      processed_at TEXT NOT NULL
+    );
   `);
 
   const catCount = await database.getFirstAsync('SELECT COUNT(*) as c FROM categories');
@@ -83,6 +95,17 @@ async function initSchema(database) {
         [uid(), c.name, c.icon, c.color],
       );
     }
+  }
+
+  // Add priority column to goals table if it doesn't exist (migration)
+  try {
+    const goalsColumns = await database.getAllAsync('PRAGMA table_info(goals)');
+    const hasPriority = goalsColumns.some(col => col.name === 'priority');
+    if (!hasPriority) {
+      await database.execAsync('ALTER TABLE goals ADD COLUMN priority INTEGER DEFAULT 0');
+    }
+  } catch (error) {
+    console.log('Migration check for priority column failed:', error);
   }
 
   const settingsRow = await database.getFirstAsync('SELECT data FROM settings WHERE id = 1');
@@ -111,14 +134,15 @@ async function migratePhotosToFiles(database) {
 
 export async function loadAllData() {
   const database = await getDatabase();
-  const [expenses, income, categories, goals, recurring, merchantRows, settingsRow] = await Promise.all([
+  const [expenses, income, categories, goals, recurring, merchantRows, settingsRow, goalContributions] = await Promise.all([
     database.getAllAsync('SELECT * FROM expenses ORDER BY date DESC'),
     database.getAllAsync('SELECT * FROM income ORDER BY date DESC'),
     database.getAllAsync('SELECT * FROM categories ORDER BY name ASC'),
-    database.getAllAsync('SELECT id, name, target, current, target_date as date FROM goals'),
+    database.getAllAsync('SELECT id, name, target, current, target_date as date, priority FROM goals'),
     database.getAllAsync('SELECT id, name, amount, category, day, last_added as lastAdded FROM recurring'),
     database.getAllAsync('SELECT key, category FROM merchant_map'),
     database.getFirstAsync('SELECT data FROM settings WHERE id = 1'),
+    database.getAllAsync('SELECT * FROM goal_contributions ORDER BY date DESC'),
   ]);
 
   const merchantMap = {};
@@ -139,6 +163,7 @@ export async function loadAllData() {
     recurring,
     merchantMap,
     settings,
+    goalContributions,
   };
 }
 
@@ -213,8 +238,8 @@ export async function deleteCategory(id) {
 export async function saveGoal(goal) {
   const database = await getDatabase();
   await database.runAsync(
-    'INSERT OR REPLACE INTO goals (id, name, target, current, target_date) VALUES (?, ?, ?, ?, ?)',
-    [goal.id, goal.name, goal.target, goal.current || 0, goal.date || ''],
+    'INSERT OR REPLACE INTO goals (id, name, target, current, target_date, priority) VALUES (?, ?, ?, ?, ?, ?)',
+    [goal.id, goal.name, goal.target, goal.current || 0, goal.date || '', goal.priority || 0],
   );
 }
 
@@ -273,6 +298,7 @@ export async function restoreBackup(data) {
     DELETE FROM merchant_map;
     DELETE FROM categories;
     DELETE FROM settings;
+    DELETE FROM goal_contributions;
   `);
 
   for (const e of data.expenses || []) await saveExpense(mapExpense(e));
@@ -283,4 +309,31 @@ export async function restoreBackup(data) {
   if (data.merchantMap) await saveMerchantMap(data.merchantMap);
   if (data.settings) await saveSettings({ ...DEFAULT_SETTINGS, ...data.settings });
   else await initSchema(database);
+}
+
+export async function saveGoalContribution(contribution) {
+  const database = await getDatabase();
+  await database.runAsync(
+    'INSERT OR REPLACE INTO goal_contributions (id, goal_id, amount, date, month_key) VALUES (?, ?, ?, ?, ?)',
+    [contribution.id, contribution.goalId, contribution.amount, contribution.date, contribution.monthKey],
+  );
+}
+
+export async function deleteGoalContribution(id) {
+  const database = await getDatabase();
+  await database.runAsync('DELETE FROM goal_contributions WHERE id = ?', [id]);
+}
+
+export async function logAutoSave(monthKey) {
+  const database = await getDatabase();
+  await database.runAsync(
+    'INSERT OR REPLACE INTO auto_save_log (month_key, processed_at) VALUES (?, ?)',
+    [monthKey, new Date().toISOString()],
+  );
+}
+
+export async function hasAutoSaveProcessed(monthKey) {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync('SELECT month_key FROM auto_save_log WHERE month_key = ?', [monthKey]);
+  return !!row;
 }

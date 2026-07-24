@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as db from '../db/database';
 import { learnCategory } from '../logic/categorize';
-import { uid, todayISO, monthKey } from '../logic/utils';
+import { uid, todayISO, monthKey, fmtMoney } from '../logic/utils';
 import {
   initNotifications,
   checkBudgetAlerts,
@@ -19,6 +19,7 @@ export function LedgerProvider({ children }) {
     goals: [],
     recurring: [],
     merchantMap: {},
+    goalContributions: [],
     settings: {
       currency: '₹',
       darkMode: false,
@@ -50,6 +51,7 @@ export function LedgerProvider({ children }) {
       await initNotifications();
       const data = await refresh();
       await processRecurringInternal(data);
+      await processAutoSaveInternal(data);
       await scheduleRecurringReminders(data.recurring, data.settings.notificationsRecurring !== false);
       setReady(true);
     })();
@@ -164,6 +166,83 @@ export function LedgerProvider({ children }) {
     await refresh();
   }, [refresh]);
 
+  const addGoalContribution = useCallback(async (contribution) => {
+    await db.saveGoalContribution({ id: uid(), ...contribution });
+    await refresh();
+  }, [refresh]);
+
+  const removeGoalContribution = useCallback(async (id) => {
+    await db.deleteGoalContribution(id);
+    await refresh();
+  }, [refresh]);
+
+  async function processAutoSaveInternal(data) {
+    const mk = monthKey(todayISO());
+    
+    // Check if already processed this month
+    const alreadyProcessed = await db.hasAutoSaveProcessed(mk);
+    if (alreadyProcessed) return;
+
+    // Only run auto-save if we're on the last day of the month
+    const today = new Date();
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    if (today.getDate() !== lastDayOfMonth) return;
+
+    const budget = data.settings.monthlyBudget || 0;
+    if (!budget) return;
+
+    const monthExpenses = data.expenses.filter((e) => monthKey(e.date) === mk);
+    const monthTotal = monthExpenses.reduce((s, e) => s + e.amount, 0);
+    const remaining = budget - monthTotal;
+
+    if (remaining <= 0) {
+      await db.logAutoSave(mk);
+      return;
+    }
+
+    const priorityGoal = data.goals.find((g) => g.priority === 1);
+    if (!priorityGoal) {
+      await db.logAutoSave(mk);
+      return;
+    }
+
+    let distributions = [];
+
+    if (remaining <= 2000) {
+      // Entire amount to #1 priority goal
+      distributions.push({ goal: priorityGoal, amount: remaining });
+    } else {
+      // 60% to #1 priority goal
+      const priorityAmount = remaining * 0.6;
+      distributions.push({ goal: priorityGoal, amount: priorityAmount });
+
+      // 40% divided evenly across other goals
+      const otherGoals = data.goals.filter((g) => g.priority !== 1 && g.priority > 0);
+      if (otherGoals.length > 0) {
+        const otherAmount = remaining * 0.4;
+        const perGoal = otherAmount / otherGoals.length;
+        otherGoals.forEach((g) => {
+          distributions.push({ goal: g, amount: perGoal });
+        });
+      }
+    }
+
+    // Apply distributions
+    for (const dist of distributions) {
+      await db.saveGoalContribution({
+        id: uid(),
+        goalId: dist.goal.id,
+        amount: dist.amount,
+        date: todayISO(),
+        monthKey: mk,
+      });
+      await db.saveGoal({ ...dist.goal, current: dist.goal.current + dist.amount });
+    }
+
+    await db.logAutoSave(mk);
+    showToast(`Auto-saved ${fmtMoney(remaining, data.settings.currency)} to goals`);
+  }
+
   const addRecurring = useCallback(async (rec) => {
     await db.saveRecurring({ id: uid(), lastAdded: null, ...rec });
     const data = await refresh();
@@ -224,6 +303,8 @@ export function LedgerProvider({ children }) {
     addGoal,
     updateGoal,
     removeGoal,
+    addGoalContribution,
+    removeGoalContribution,
     addRecurring,
     removeRecurring,
     updateSettings,
@@ -236,6 +317,7 @@ export function LedgerProvider({ children }) {
     state, ready, locked, toast, showToast, refresh,
     addExpense, updateExpense, removeExpense, addIncome, removeIncome,
     saveCategoryItem, removeCategory, addGoal, updateGoal, removeGoal,
+    addGoalContribution, removeGoalContribution,
     addRecurring, removeRecurring, updateSettings, unlock, wipeData,
     restoreBackup, catByName,
   ]);
