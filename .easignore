@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+.git/
+*.log
+.DS_Store
+assets/webapp/
+webviewContent.js
+build-webview-bundle.js
+EXPO_GUIDE.md

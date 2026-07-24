@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "Ledger",
+    "slug": "ledger-expense-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "ledger",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ledger.expensetracker",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Ledger uses the camera to scan receipts.",
+        "NSMicrophoneUsageDescription": "Ledger uses the microphone for voice expense entry.",
+        "NSPhotoLibraryUsageDescription": "Ledger lets you attach receipt photos from your gallery."
+      }
+    },
+    "android": {
+      "package": "com.ledger.expensetracker",
+      "softwareKeyboardLayoutMode": "pan",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F3D3E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0F3D3E"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Ledger uses the camera to attach receipt photos."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d8133020-0560-478c-a75c-f8b62a073713"
+      }
+    },
+    "owner": "lostleaff"
+  }
+}
